@@ -251,7 +251,6 @@ function slurpAnnotationAttribs(ctx) {
   ctx.sdb.each(
     'SELECT * FROM moz_anno_attributes',
     function row(err, row) {
-      console.log('row!!!!');
       annoAttribsById[row.id] = row.name;
     },
     function complete(err) {
@@ -358,7 +357,7 @@ function slurpKeywords(ctx) {
   ctx.sdb.each(
     'SELECT * FROM moz_keywords',
     function row(err, row) {
-      keywordsById[row.id] = row.name;
+      keywordsById[row.id] = row.keyword;
     },
     function complete(err) {
       console.log('slurped keywords');
@@ -379,7 +378,8 @@ function slurpFavicons(ctx) {
     function row(err, row) {
       faviconsById[row.id] = {
         url: row.url,
-        data: row.data,
+        // force the buffer to be a string
+        data: row.data.toString(),
         mimeType: row.mime_type,
         expiration: row.expiration,
         // dropping guid because we don't need it
@@ -412,6 +412,8 @@ function slurpHistoryVisits(ctx) {
     'SELECT * FROM moz_historyvisits ORDER BY visit_date ASC',
     function row(err, row) {
       var visits = visitsByPlaceId[row.place_id];
+      if (!visits)
+        visits = visitsByPlaceId[row.place_id] = [];
 
       var key = lexiformTimestamp(row.visit_date);
       if (lastTS === row.visit_date) {
@@ -429,6 +431,7 @@ function slurpHistoryVisits(ctx) {
         type: row.visit_type,
         session: row.session
       };
+      visits.push(visitInfo);
     },
     function complete(err) {
       console.log('slurped history visits');
@@ -491,11 +494,12 @@ function slurpBookmarks(ctx) {
     function row(err, row) {
       var hierInfo = {
         id: row.id,
+        url: null,
         placeId: row.fk, // I am sending bad karma at you, maker of this choice!
         parentId: row.parent,
         position: row.position,
         title: row.title,
-        keyword: row.keyword ? ctx.keywordsById[row.keyword] : null,
+        keyword: row.keyword_id ? ctx.keywordsById[row.keyword_id] : null,
         dateAdded: row.dateAdded,
         lastModified: row.lastModified,
         guid: row.guid,
@@ -510,7 +514,7 @@ function slurpBookmarks(ctx) {
       // one per single url.
       var linkedBookmarks = bookmarksByPlaceId[hierInfo.placeId];
       if (!linkedBookmarks)
-        linkedBookmarks = [];
+        linkedBookmarks = bookmarksByPlaceId[hierInfo.placeId] = [];
        linkedBookmarks.push(hierInfo);
     },
     function complete(err) {
@@ -531,21 +535,31 @@ function slurpBookmarks(ctx) {
       }
 
       // - link children to their parents
+      var tagBookmarks = [];
       flatBookmarks.forEach(function(hierInfo) {
         var parentHierInfo = bookmarksById[hierInfo.parentId];
 
-        // Propagate tags!
+        // Detect tags and stash them so we can walk their children next
         if (hierInfo.parentId === TAG_ROOT_ID) {
-          var tags = tagsByPlaceId[hierInfo.placeId];
-          if (!tags)
-            tags = tagsByPlaceId[hierInfo.placeId] = [];
-          tags.push(parentHierInfo.title);
+          tagBookmarks.push(hierInfo);
         }
         // Not a tag!
         else if (parentHierInfo){
           if (!parentHierInfo.kids)
             parentHierInfo.kids = [];
           parentHierInfo.kids.push(hierInfo);
+        }
+      });
+      // - walk children of tags to build tag list
+      tagBookmarks.forEach(function(hierInfo) {
+        var tag = hierInfo.title;
+        if (hierInfo.kids) {
+          hierInfo.kids.forEach(function(kidInfo) {
+            var tags = tagsByPlaceId[kidInfo.placeId];
+            if (!tags)
+              tags = tagsByPlaceId[kidInfo.placeId] = [];
+            tags.push(tag);
+          });
         }
       });
 
@@ -587,7 +601,7 @@ function writeBookmarks(ctx) {
     // - tags
     if (bookmark.tags) {
       bookmark.tags.forEach(function(tag) {
-        batch.put('T\0' + tag + '\0' + bookmark.url, null);
+        batch.put('T\0' + tag + '\0' + bookmark.url, {});
       });
     }
 
@@ -616,7 +630,7 @@ function writeBookmarks(ctx) {
     console.log('wrote bookmarks');
     deferred.resolve();
   });
-  return deferred.promise();
+  return deferred.promise;
 }
 
 var BATCH_LIMIT = 1000;
@@ -648,7 +662,8 @@ function extractTermsForPlace(url, title, bookmarks, tags) {
   if (title)
     title.split(/\W+/g).forEach(maybeAddTerm);
   bookmarks.forEach(function(bookmark) {
-    bookmarks.title.split(/\W+/g).forEach(maybeAddTerm);
+    if (bookmark.title)
+      bookmark.title.split(/\W+/g).forEach(maybeAddTerm);
   });
   tags.forEach(maybeAddTerm);
   // note: we don't add the keyword as a term because that would defeat the
@@ -732,7 +747,7 @@ function transformPlaceRecords(ctx) {
           });
         batch.put(
           'h\0' + reversedHost + '\0' + url,
-          null);
+          {});
       });
 
       // -- emit awesomebar stuff
@@ -834,16 +849,31 @@ function kickoffConversions(results) {
     .then(slurpBookmarkRoots.bind(null, context))
     .then(slurpBookmarks.bind(null, context))
     .then(transformPlaceRecords.bind(null, context))
+    .then(writeBookmarks.bind(null, context))
+    .then(closeDbs.bind(null, context))
     .then(allDone.bind(null, context))
     .fail(fatalError);
 
   return theGreatPromiseChain;
 }
 
+function closeDbs(ctx) {
+  var sdeferred = $Q.defer();
+  var ldeferred = $Q.defer();
+  ctx.sdb.close(function() {
+    console.log('SQLite DB closed');
+    sdeferred.resolve();
+  });
+  ctx.ldb.close(function() {
+    console.log('LevelDB closed');
+    ldeferred.resolve();
+  });
+
+  return $Q.all([sdeferred.promise, ldeferred.promise]);
+}
+
 function allDone(ctx) {
   console.log('All done!');
-  ctx.sdb.close();
-  ctx.ldb.close();
 }
 
 function fatalError(err) {
