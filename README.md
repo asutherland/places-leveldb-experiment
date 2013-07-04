@@ -8,6 +8,10 @@ potentially efficient awesomebar implementation, etc.
 
 ## Make It Go ##
 
+Pre-requisites:
+- have node.js
+- invoke "npm install"
+
 copy your places.sqlite to this directory from your profile
 
 run:
