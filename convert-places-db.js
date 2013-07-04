@@ -2,8 +2,6 @@
  * Quick experiment to map the normalized SQLite places database to what seems
  * like a reasonable denormalized LevelDB representation for sizing info.
  *
- * NOT YET IMPLEMENTED: Bookmarks.
- *
  * I am treating these as primary use-cases:
  * - Bookmarks by hierarchy: directly populate the bookmarks UI; fetch a given
  *    level of hierarchy one at a time, starting from the root.
