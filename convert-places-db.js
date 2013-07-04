@@ -755,11 +755,11 @@ function transformPlaceRecords(ctx) {
       var parsedUrl = $url.parse(url);
       var terms =
             extractTermsForPlace(parsedUrl, row.title, linkedBookmarks, tags);
-      function emitAwesome(magic, term) {
+      function emitAwesome(magic, term, frecency) {
         var awesomeKey =
               'A\0' +
               magic + '\0' +
-              invertAndPadNumber(row.frecency, MAX_FRECENCY, FRECENCY_DIGITS) +
+              invertAndPadNumber(frecency, MAX_FRECENCY, FRECENCY_DIGITS) +
               '\0' +
               term + '\0' +
               reversedHost + '\0' +
@@ -771,7 +771,7 @@ function transformPlaceRecords(ctx) {
         var magic = term;
         var lowestPrefix = lowestPrefixToEmitGivenFrecency(row.frecency);
         while (magic.length >= lowestPrefix) {
-          emitAwesome(magic, term);
+          emitAwesome(magic, term, row.frecency);
           magic = magic.slice(0, -1);
         }
       });
@@ -780,12 +780,14 @@ function transformPlaceRecords(ctx) {
       var inputs = ctx.inputHistoryByPlaceId[placeId];
       for (var typed in inputs) {
         var countObj = inputs[typed];
+        // my range goes up to about 7, so to scale closer to my frecencies...
+        var inputFrecency = Math.floor(countObj.useCount * 15000);
         batch.put('a\0' + typed + '\0' + url, countObj);
-        emitAwesome(typed, typed);
+        emitAwesome(typed, typed, inputFrecency);
         if (typed.length >= 2) {
           var typedPrefix = typed.slice(0, -1);
           if (!inputs.hasOwnProperty(typedPrefix))
-            emitAwesome(typedPrefix, typed);
+            emitAwesome(typedPrefix, typed, Math.floor(inputFrecency / 2));
         }
       }
 
