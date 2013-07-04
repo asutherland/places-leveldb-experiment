@@ -1,0 +1,9 @@
+{
+  "name": "places-leveldb-experiment",
+  "dependencies": {
+    "leveldown": ">= 0.0.1",
+    "levelup": ">= 0.0.1",
+    "q": ">= 0.0.1",
+    "sqlite3": ">= 2.1.1"
+  }
+}
