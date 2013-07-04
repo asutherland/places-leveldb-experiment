@@ -15,7 +15,8 @@ Pre-requisites:
 copy your places.sqlite to this directory from your profile
 
 run:
-  node convert-places-db.js
+
+    node convert-places-db.js
 
 it will produce a leveldb-places.ldb directory which is apparently what a
 LevelDB database is.
@@ -30,7 +31,8 @@ things, then you may be better off typing something more like:
 LevelDB is just as hard to read by hand as SQLite, and the skills sadly don't
 transfer even if you can read raw SQLite binary data.  So I recommend doing
 this:
-  node dump-places-leveldb.js | less
+
+    node dump-places-leveldb.js | less
 
 
 ## I said What?! ##
